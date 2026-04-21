@@ -1,19 +1,38 @@
-The PullRequest.Tool allows you to effortlessly export pull request data from an Azure DevOps repository into an Excel sheet with a single click. This functionality is especially useful during product releases and for auditing, providing quick access to organized pull request information.
+# PullRequest.Tool
 
-Instructions:
+Based on the super helpful original here: [https://github.com/UdayQA9/PullRequest.Tool](https://github.com/UdayQA9/PullRequest.Tool)
 
-Download and Extract
-Download the project to your local machine and extract the contents.
+PullRequest.Tool provides a UI tool for Azure DevOps pull request reporting
 
-Run the Tool
-Open the extracted folder, then double-click on index.html to run the tool.
+## Current Functionality
 
-Fill in Details
-Complete the necessary fields in the form, then click the Fetch button.
+The tool supports:
 
-Note:
+1. Pull request retrieval from Azure DevOps repository APIs.
+2. Configurable `Start Date` filter (fetch PRs from a user-selected date onward).
+3. Status and branch filtering.
+4. `Approvers` column (reviewers with vote >= 5).
+5. Linked work item display for selected PRs.
+6. CSV export (includes PR URL and approvers).
 
-Ensure you have access to the Azure DevOps repository.
-You will need a Personal Access Token (PAT) to fetch the data.
-Once complete, you’ll see pull request data displayed in a table. You can then export this data to Excel with a single click.
-![image](https://github.com/user-attachments/assets/3867621e-8926-4ab9-a241-978185f843cf))
+## How To Run
+
+1. Open `Azure Automation Tool/index.html` in a browser.
+2. Enter `Organization`, `Project`, `Repository`, `PAT`, and optional `Branch`.
+3. Select `PR Status` and optionally choose `Start Date`.
+4. Click `Fetch Pull Requests`.
+5. Select a row to view PR details, reviewers, and linked work items.
+6. Click `Export` to download CSV.
+
+## PAT Requirements
+
+Use a Personal Access Token (PAT) with minimum required scopes:
+
+1. `Code (Read)` (`vso.code`): Required to list pull requests, reviewers, and PR-linked work item references.
+2. `Work Items (Read)` (`vso.work`): Required to resolve linked work item details (title/state/type) via WIT APIs.
+
+## Notes
+
+1. PAT must belong to an identity with access to the target org/project/repository.
+2. For security, keep PAT scopes minimal and rotate PATs regularly.
+3. Use HTTPS Azure DevOps URLs only.
