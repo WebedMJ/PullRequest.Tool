@@ -250,8 +250,10 @@ document.addEventListener("DOMContentLoaded", () => {
   async function fetchWorkItemsForPR(pullRequest) {
     const organization = document.getElementById("organization").value.trim();
     const project = document.getElementById("project").value.trim();
+    const repositoryInput = document.getElementById("repository").value.trim();
     const pat = document.getElementById("pat").value.trim();
     const prId = pullRequest.pullRequestId;
+    const repositoryId = pullRequest?.repository?.id || repositoryInput;
 
     try {
       // Create base64 encoded authorization header
@@ -259,8 +261,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       console.log(`Fetching work items for PR #${prId}`);
 
-      // First get the work item references from the PR - using the repository endpoint
-      const apiUrl = `https://dev.azure.com/${organization}/${project}/_apis/git/repositories/${pullRequest.repository.id}/pullRequests/${prId}/workitems?api-version=6.0`;
+      // Use the documented PR work-items endpoint (API 7.1).
+      const linkedWorkItemsHref = pullRequest?._links?.workItems?.href;
+      const apiUrl =
+        linkedWorkItemsHref && isAllowedAzureDevOpsUrl(linkedWorkItemsHref, organization)
+          ? linkedWorkItemsHref.includes("api-version=")
+            ? linkedWorkItemsHref
+            : `${linkedWorkItemsHref}${linkedWorkItemsHref.includes("?") ? "&" : "?"}api-version=7.1`
+          : `https://dev.azure.com/${organization}/${project}/_apis/git/repositories/${repositoryId}/pullRequests/${prId}/workitems?api-version=7.1`;
 
       console.log(`API URL: ${apiUrl}`);
 
@@ -286,13 +294,28 @@ document.addEventListener("DOMContentLoaded", () => {
         return [];
       }
 
-      // Get the work item IDs
-      const workItemIds = data.value.map((wi) => wi.id);
+      // Get work item IDs from response payload (supports both id and url-only shapes).
+      const workItemIds = data.value
+        .map((wi) => {
+          if (wi.id) {
+            return wi.id;
+          }
+
+          const url = wi.url || "";
+          const match = url.match(/\/workItems\/(\d+)/i);
+          return match ? match[1] : null;
+        })
+        .filter(Boolean);
+
+      if (workItemIds.length === 0) {
+        console.log("Work item references found but IDs could not be resolved");
+        return [];
+      }
+
       console.log("Work item IDs:", workItemIds);
 
-      // Now get the details for each work item
-      const workItemDetailsUrl = `https://dev.azure.com/${organization}/${project}/_apis/wit/workitems?ids=${workItemIds.join(",")}&fields=System.Id,System.Title,System.State,System.WorkItemType&api-version=6.0`;
-
+      // Fetch details for richer display; if blocked by PAT scope, fall back to ID-only entries.
+      const workItemDetailsUrl = `https://dev.azure.com/${organization}/${project}/_apis/wit/workitems?ids=${workItemIds.join(",")}&fields=System.Id,System.Title,System.State,System.WorkItemType&api-version=7.1`;
       console.log(`Work item details URL: ${workItemDetailsUrl}`);
 
       const detailsResponse = await fetch(workItemDetailsUrl, {
@@ -303,68 +326,29 @@ document.addEventListener("DOMContentLoaded", () => {
         },
       });
 
-      if (!detailsResponse.ok) {
-        const errorText = await detailsResponse.text();
-        console.error(`Error response for details: ${errorText}`);
-        throw new Error(`Error: ${detailsResponse.status} - ${detailsResponse.statusText}`);
+      if (detailsResponse.ok) {
+        const workItemDetails = await detailsResponse.json();
+        console.log("Work item details:", workItemDetails);
+        return workItemDetails.value || [];
       }
 
-      const workItemDetails = await detailsResponse.json();
-      console.log("Work item details:", workItemDetails);
+      const detailsErrorText = await detailsResponse.text();
+      console.warn(
+        `Details lookup failed (${detailsResponse.status}); falling back to ID-only items.`,
+        detailsErrorText,
+      );
 
-      return workItemDetails.value || [];
+      return workItemIds.map((id) => ({
+        id: Number(id),
+        fields: {
+          "System.Title": `Work Item ${id}`,
+          "System.WorkItemType": "Work Item",
+          "System.State": "Linked",
+        },
+      }));
     } catch (error) {
       console.error("Error fetching work items:", error);
-
-      // Try alternative API endpoint if the first one fails
-      try {
-        console.log("Trying alternative work items API endpoint...");
-
-        // Alternative method directly using PR ID in the project
-        const altApiUrl = `https://dev.azure.com/${organization}/${project}/_apis/git/pullrequests/${prId}/workitems?api-version=6.0`;
-
-        console.log(`Alternative API URL: ${altApiUrl}`);
-
-        const authHeader = `Basic ${btoa(`:${pat}`)}`;
-        const altResponse = await fetch(altApiUrl, {
-          method: "GET",
-          headers: {
-            Authorization: authHeader,
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!altResponse.ok) {
-          throw new Error(`Alternative API error: ${altResponse.status}`);
-        }
-
-        const altData = await altResponse.json();
-        console.log("Alternative API response:", altData);
-
-        if (!altData.value || altData.value.length === 0) {
-          return [];
-        }
-
-        // Get the work item IDs
-        const workItemIds = altData.value.map((wi) => wi.id);
-
-        // Get details
-        const workItemDetailsUrl = `https://dev.azure.com/${organization}/${project}/_apis/wit/workitems?ids=${workItemIds.join(",")}&fields=System.Id,System.Title,System.State,System.WorkItemType&api-version=6.0`;
-
-        const detailsResponse = await fetch(workItemDetailsUrl, {
-          method: "GET",
-          headers: {
-            Authorization: authHeader,
-            "Content-Type": "application/json",
-          },
-        });
-
-        const workItemDetails = await detailsResponse.json();
-        return workItemDetails.value || [];
-      } catch (altError) {
-        console.error("Alternative method also failed:", altError);
-        return [];
-      }
+      return [];
     }
   }
 
