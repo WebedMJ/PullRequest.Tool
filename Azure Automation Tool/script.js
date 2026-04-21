@@ -80,6 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const clearSearchBtn = document.getElementById("clearSearchBtn");
   const exportButton = document.getElementById("exportButton");
   const exportButtonDesktop = document.getElementById("exportButtonDesktop");
+  const startDateInput = document.getElementById("startDate");
 
   let allPullRequests = [];
   let selectedPullRequest = null;
@@ -115,6 +116,13 @@ document.addEventListener("DOMContentLoaded", () => {
   exportButton.addEventListener("click", exportToExcel);
   exportButtonDesktop.addEventListener("click", exportToExcel);
 
+  // Default to 12 months back if user doesn't specify a date.
+  if (startDateInput && !startDateInput.value) {
+    const defaultStartDate = new Date();
+    defaultStartDate.setMonth(defaultStartDate.getMonth() - 12);
+    startDateInput.value = defaultStartDate.toISOString().slice(0, 10);
+  }
+
   // Auto-fetch pull requests when page loads
   fetchPullRequests();
 
@@ -126,6 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const pat = document.getElementById("pat").value.trim();
     const branch = document.getElementById("branch").value.trim();
     const statusFilter = document.getElementById("status").value;
+    const startDateValue = startDateInput?.value?.trim() || "";
 
     // Reset all field borders
     document.querySelectorAll("input, select").forEach((field) => {
@@ -169,38 +178,66 @@ document.addEventListener("DOMContentLoaded", () => {
       // Create base64 encoded authorization header
       const authHeader = `Basic ${btoa(`:${pat}`)}`;
 
-      // Construct the Azure DevOps API URL for pull requests
-      let apiUrl = `https://dev.azure.com/${organization}/${project}/_apis/git/repositories/${repository}/pullrequests?api-version=6.0`;
-
-      // Add status filter if not "all"
-      if (statusFilter !== "all") {
-        apiUrl += `&searchCriteria.status=${statusFilter}`;
+      // Use user-selected start date; fallback to the last 12 months.
+      let minTime;
+      if (startDateValue) {
+        minTime = new Date(`${startDateValue}T00:00:00`);
       }
-
-      // Add branch filter if provided
-      if (branch) {
-        apiUrl += `&searchCriteria.targetRefName=refs/heads/${branch}`;
+      if (!minTime || Number.isNaN(minTime.getTime())) {
+        minTime = new Date();
+        minTime.setMonth(minTime.getMonth() - 12);
       }
+      const minTimeISO = minTime.toISOString();
 
-      const response = await fetch(apiUrl, {
-        method: "GET",
-        headers: {
-          Authorization: authHeader,
-          "Content-Type": "application/json",
-        },
-      });
+      const PAGE_SIZE = 100;
+      let skip = 0;
+      const pagedPullRequests = [];
 
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status} - ${response.statusText}`);
+      while (true) {
+        let apiUrl =
+          `https://dev.azure.com/${organization}/${project}/_apis/git/repositories/${repository}/pullrequests?api-version=7.0` +
+          `&searchCriteria.minTime=${encodeURIComponent(minTimeISO)}` +
+          `&$top=${PAGE_SIZE}` +
+          `&$skip=${skip}`;
+
+        // Add status filter if not "all"
+        if (statusFilter !== "all") {
+          apiUrl += `&searchCriteria.status=${statusFilter}`;
+        }
+
+        // Add branch filter if provided
+        if (branch) {
+          apiUrl += `&searchCriteria.targetRefName=refs/heads/${branch}`;
+        }
+
+        const response = await fetch(apiUrl, {
+          method: "GET",
+          headers: {
+            Authorization: authHeader,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error: ${response.status} - ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const page = data.value || [];
+        pagedPullRequests.push(...page);
+
+        if (page.length < PAGE_SIZE) {
+          break;
+        }
+
+        skip += PAGE_SIZE;
       }
-
-      const data = await response.json();
 
       // Hide loading spinner
       loadingSpinner.style.display = "none";
 
       // Store pull requests globally and display them
-      allPullRequests = data.value;
+      allPullRequests = pagedPullRequests;
       displayPullRequests(allPullRequests);
     } catch (error) {
       // Hide loading spinner and show error
@@ -729,7 +766,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (pullRequests.length === 0) {
       const emptyRow = document.createElement("tr");
-      emptyRow.innerHTML = '<td colspan="5" class="text-center py-4 text-gray-500">No pull requests found.</td>';
+      emptyRow.innerHTML = '<td colspan="6" class="text-center py-4 text-gray-500">No pull requests found.</td>';
       pullRequestsContainer.appendChild(emptyRow);
       return;
     }
@@ -791,11 +828,20 @@ document.addEventListener("DOMContentLoaded", () => {
       statusPill.textContent = pr.status || "active";
       statusCell.appendChild(statusPill);
 
+      const approversCell = document.createElement("td");
+      approversCell.className = "px-4 py-3 border-b";
+      const approvers = (pr.reviewers || [])
+        .filter((reviewer) => reviewer.vote >= 5)
+        .map((reviewer) => reviewer.displayName)
+        .filter(Boolean);
+      approversCell.textContent = approvers.join(", ");
+
       row.appendChild(titleCell);
       row.appendChild(idCell);
       row.appendChild(createdByCell);
       row.appendChild(dateCell);
       row.appendChild(statusCell);
+      row.appendChild(approversCell);
 
       // Add click event to show user details
       row.addEventListener("click", (e) => {
@@ -850,6 +896,7 @@ document.addEventListener("DOMContentLoaded", () => {
         "Source Branch",
         "Target Branch",
         "Status",
+        "Approvers",
         "Description",
         "Closed Date",
         "Closed By",
@@ -876,6 +923,11 @@ document.addEventListener("DOMContentLoaded", () => {
           sourceBranch,
           targetBranch,
           pr.status || "active",
+          (pr.reviewers || [])
+            .filter((reviewer) => reviewer.vote >= 5)
+            .map((reviewer) => reviewer.displayName)
+            .filter(Boolean)
+            .join(", "),
           pr.description || "",
           formatDateForExcel(pr.closedDate),
           pr.closedBy?.displayName || "",

@@ -585,7 +585,7 @@ footer {
   height: 100%;
 }
 .max-w-6xl {
-  max-width: 72rem;
+  max-width: 90rem;
 }
 .min-w-full {
   min-width: 100%;
@@ -724,5 +724,44 @@ footer {
   }
   .md\:flex {
     display: flex;
+  }
+}
+
+/* Responsive behavior for bottom results pane */
+#results-container {
+  display: flex;
+  flex-direction: column;
+}
+
+#sticky-user-panel,
+#sticky-table-panel {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+}
+
+#pr-table-header .flex.justify-between.items-center.gap-2 {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+#userSearchBox {
+  flex: 1 1 240px;
+  min-width: 180px;
+}
+
+@media (min-width: 1200px) {
+  #results-container {
+    flex-direction: row;
+  }
+
+  #sticky-user-panel {
+    flex: 0 0 28%;
+    max-width: 28% !important;
+  }
+
+  #sticky-table-panel {
+    flex: 1 1 72%;
+    max-width: 72% !important;
   }
 }
