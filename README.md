@@ -1,5 +1,7 @@
 # PullRequest.Tool
 
+Based on the super helpful original here: [https://github.com/UdayQA9/PullRequest.Tool](https://github.com/UdayQA9/PullRequest.Tool)
+
 PullRequest.Tool provides a UI tool for Azure DevOps pull request reporting
 
 ## Current Functionality
